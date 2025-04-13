@@ -3,10 +3,14 @@ import { todolistsApi } from "@/features/todolists/api/todolistsApi"
 import type { Todolist } from "@/features/todolists/api/todolistsApi.types"
 import { type ChangeEvent, type CSSProperties, useEffect, useState } from "react"
 import Checkbox from "@mui/material/Checkbox"
+import { tasksApi } from "@/features/todolists/api/tasksApi"
+import { DomainTask, UpdateTaskModel } from "@/features/todolists/api/tasksApi.types"
+import { error } from "console"
+import { TaskStatus } from "@/common/enums/enums"
 
 export const AppHttpRequests = () => {
   const [todolists, setTodolists] = useState<Todolist[]>([])
-  const [tasks, setTasks] = useState<any>({})
+  const [tasks, setTasks] = useState<Record<string, DomainTask[]>>({})
 
   useEffect(() => {
     todolistsApi.getTodolists().then((res) => setTodolists(res.data))
@@ -29,13 +33,122 @@ export const AppHttpRequests = () => {
     })
   }
 
-  const createTask = (todolistId: string, title: string) => {}
+  // tasks
+  // useEffect(() => {
+  //   todolistsApi.getTodolists().then((res) => {
+  //     const todolists = res.data
+  //     setTodolists(todolists)
+  //     todolists.forEach((todolist) => {
+  //       tasksApi.getTasks(todolist.id).then((res) => {
+  //         setTasks({ ...tasks, [todolist.id]: res.data.items })
+  //       })
+  //     })
+  //   })
+  // }, [])
+  useEffect(() => {
+    todolistsApi.getTodolists().then((res) => {
+      const todolists = res.data
+      setTodolists(todolists)
 
-  const deleteTask = (todolistId: string, taskId: string) => {}
+      const loadTasksPromises = todolists.map((todolist) =>
+        tasksApi.getTasks(todolist.id).then((res) => ({
+          todolistId: todolist.id,
+          tasks: res.data.items,
+        })),
+      )
 
-  const changeTaskStatus = (e: ChangeEvent<HTMLInputElement>, task: any) => {}
+      Promise.all(loadTasksPromises).then((results) => {
+        const updatedTasks = results.reduce(
+          (acc, { todolistId, tasks }) => {
+            acc[todolistId] = tasks
+            return acc
+          },
+          {} as Record<string, DomainTask[]>,
+        )
 
-  const changeTaskTitle = (task: any, title: string) => {}
+        setTasks((prevTasks) => ({
+          ...prevTasks,
+          ...updatedTasks,
+        }))
+      })
+    })
+  }, [])
+
+  const createTask = (todolistId: string, title: string) => {
+    tasksApi
+      .createTask({ todolistId, title }) // Запрос на создание таски
+      .then((res) => {
+        const newTask = res.data.data.item // Новая таска из ответа API
+
+        // Обновляем состояние таски
+        setTasks((prevTasks) => ({
+          ...prevTasks,
+          [todolistId]: [newTask, ...(prevTasks[todolistId] || [])],
+        }))
+      })
+      .catch((error) => {
+        console.error("Ошибка при создании таски: ", error)
+      })
+  }
+
+  const deleteTask = (todolistId: string, taskId: string) => {
+    tasksApi
+      .deleteTask({ todolistId, taskId })
+      .then(() => {
+        setTasks({
+          ...tasks,
+          [todolistId]: tasks[todolistId].filter((task) => task.id !== taskId),
+        })
+      })
+      .catch((error) => {
+        console.error("Ошибка при удалении таски: ", error)
+      })
+  }
+
+  const changeTaskStatus = (e: ChangeEvent<HTMLInputElement>, task: DomainTask) => {
+    const todolistId = task.todoListId
+
+    // Создаем модель для обновления задачи
+    const model: UpdateTaskModel = {
+      description: task.description,
+      title: task.title,
+      priority: task.priority,
+      startDate: task.startDate,
+      deadline: task.deadline,
+      status: e.target.checked ? TaskStatus.Completed : TaskStatus.New,
+      // Новый статус: 2 - Completed (выполнено) или 0 - New (не выполнено)
+    }
+
+    // Отправляем запрос на сервер для обновления задачи
+    tasksApi
+      .updateTask({ todolistId, taskId: task.id, model })
+      .then(() => {
+        // Обновляем локальное состояние задач
+        setTasks((prevTasks) => ({
+          ...prevTasks,
+          [todolistId]: prevTasks[todolistId].map((t) => (t.id === task.id ? { ...t, status: model.status } : t)),
+        }))
+      })
+      .catch((error) => {
+        console.error("Ошибка при обновлении статуса таски: ", error)
+      })
+  }
+
+  const changeTaskTitle = (task: DomainTask, title: string) => {
+    const todolistId = task.todoListId
+
+    tasksApi
+      .changeTaskTitle({ todolistId, taskId: task.id, title })
+      .then(() => {
+        setTasks({
+          ...tasks,
+          [todolistId]: tasks[todolistId].map((t) => (t.id == task.id ? { ...t, title } : t)),
+        })
+      })
+      .catch((error) => {
+        console.error("Ошибка при обновлении title таски: ", error)
+      })
+  }
 
   return (
     <div style={{ margin: "20px" }}>
@@ -47,9 +160,9 @@ export const AppHttpRequests = () => {
             <button onClick={() => deleteTodolist(todolist.id)}>x</button>
           </div>
           <CreateItemForm onCreateItem={(title) => createTask(todolist.id, title)} />
-          {tasks[todolist.id]?.map((task: any) => (
+          {tasks[todolist.id]?.map((task) => (
             <div key={task.id}>
-              <Checkbox checked={task.isDone} onChange={(e) => changeTaskStatus(e, task)} />
+              <Checkbox checked={task.status === TaskStatus.Completed} onChange={(e) => changeTaskStatus(e, task)} />
               <EditableSpan value={task.title} onChange={(title) => changeTaskTitle(task, title)} />
               <button onClick={() => deleteTask(todolist.id, task.id)}>x</button>
             </div>
