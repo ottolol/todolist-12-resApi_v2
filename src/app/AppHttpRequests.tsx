@@ -46,10 +46,12 @@ export const AppHttpRequests = () => {
   //   })
   // }, [])
   useEffect(() => {
+    // Загружаем тудулисты
     todolistsApi.getTodolists().then((res) => {
       const todolists = res.data
       setTodolists(todolists)
 
+      // Загружаем задачи для каждого тудулиста
       const loadTasksPromises = todolists.map((todolist) =>
         tasksApi.getTasks(todolist.id).then((res) => ({
           todolistId: todolist.id,
@@ -57,15 +59,16 @@ export const AppHttpRequests = () => {
         })),
       )
 
+      // Ждем завершения всех запросов
       Promise.all(loadTasksPromises).then((results) => {
-        const updatedTasks = results.reduce(
-          (acc, { todolistId, tasks }) => {
-            acc[todolistId] = tasks
-            return acc
-          },
-          {} as Record<string, DomainTask[]>,
-        )
+        const updatedTasks: Record<string, DomainTask[]> = {} // Создаем пустой объект
 
+        // Добавляем задачи для каждого тудулиста
+        results.forEach(({ todolistId, tasks }) => {
+          updatedTasks[todolistId] = tasks // Добавляем задачи в объект
+        })
+
+        // Обновляем состояние задач
         setTasks((prevTasks) => ({
           ...prevTasks,
           ...updatedTasks,
